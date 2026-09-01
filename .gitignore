@@ -1,0 +1,26 @@
+# Model artefacts: fetched from GitHub Releases, never committed
+models/
+*.onnx
+*.pt
+*.pth
+
+# Data: downloaded by the training pipeline
+data/
+outputs/
+runs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
