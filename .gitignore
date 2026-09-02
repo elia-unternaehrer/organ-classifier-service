@@ -1,4 +1,5 @@
-# Model artefacts: fetched from GitHub Releases, never committed
+# Model artefacts: produced by export, published as GitHub Release assets
+artifacts/
 models/
 *.onnx
 *.pt
