@@ -1,0 +1,45 @@
+# Training configuration.
+#
+# What lives here is what may vary between runs without anything else breaking.
+# What is fixed in code is a decision, not a knob: cross-entropy loss, AdamW,
+# cosine schedule with warmup, balanced accuracy as the selection metric, the
+# official MedMNIST splits, and the normalisation constants in preprocessing.
+# Changing any of those should show up in a diff, not in a config file.
+
+run_name: resnet18_224
+
+# Seeds every RNG and, together with the epoch and sample index, determines
+# each augmentation draw. Two runs with this value produce identical results.
+seed: 42
+
+data:
+  dataset: organamnist
+  size: 224
+  root: data
+  num_workers: 8
+  # Memory-map the archive instead of loading it. The 224 training split is
+  # roughly 1.7 GB as uint8; turn this on if that does not fit comfortably.
+  mmap: false
+
+model:
+  name: resnet18
+  pretrained: true
+
+train:
+  # Fixed budget rather than early stopping. Early stopping would make runs
+  # incomparable by letting each one train for a different length, and the
+  # best checkpoint is retained anyway.
+  epochs: 30
+  batch_size: 128
+  lr: 3.0e-4
+  weight_decay: 0.05
+  warmup_epochs: 2
+  # off | fp16 | bf16. bf16 needs Ampere or newer.
+  amp: bf16
+
+augment:
+  rotation_deg: 10.0
+  translate: 0.1
+  # No horizontal flip: abdominal organs are not laterally symmetric, and the
+  # label set distinguishes left from right kidney and femur. A flip would map
+  # a sample onto another class's appearance while keeping its label.

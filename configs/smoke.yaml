@@ -1,0 +1,26 @@
+run_name: smoke
+
+seed: 42
+
+data: 
+  dataset: organamnist
+  size: 128
+  root: data
+  num_workers: 4
+  mmap: false
+
+model:
+  name: resnet18
+  pretrained: true
+
+train: 
+  epochs: 5
+  batch_size: 128
+  lr: 3.0e-4
+  weight_decay: 0.05
+  warmup_epochs: 0
+  amp: bf16
+
+augment:
+  rotation_deg: 10.0
+  translate: 0.1
