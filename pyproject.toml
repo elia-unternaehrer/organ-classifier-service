@@ -83,6 +83,20 @@ select = [
     "RUF",    # ruff-specific
 ]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency injection is expressed as calls in argument defaults.
+# That is the framework's documented interface, not the mutable-default bug
+# B008 exists to catch.
+extend-immutable-calls = [
+    "fastapi.Body",
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+]
+
 [tool.ruff.format]
 quote-style = "double"
 
