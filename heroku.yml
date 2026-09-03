@@ -1,0 +1,11 @@
+# Heroku builds the Dockerfile directly, so the slug size limit does not apply
+# and the image is the same one that runs locally.
+#
+# The port is assigned at runtime and the process must bind to it; the CMD in
+# the Dockerfile already expands $PORT, so no run override is needed here.
+
+build:
+  docker:
+    web: Dockerfile
+  config:
+    MODEL_VERSION: v0.1.0

@@ -1,0 +1,29 @@
+# Everything the build does not need. Keeping the context small matters here:
+# data/ holds several gigabytes of MedMNIST archives, and Docker sends the
+# whole context to the daemon before the first instruction runs.
+data/
+runs/
+artifacts/
+models/
+*.onnx
+*.pt
+*.npz
+
+.git/
+.github/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+tests/
+configs/
+assets/
+docs/
+
+.vscode/
+.idea/
+.DS_Store

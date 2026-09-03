@@ -149,9 +149,9 @@ a { color: var(--accent); }
 <header>
   <div>
     <h1>Organ classifier</h1>
-    <p>Eleven organs, recognised from a single abdominal CT slice. The same
-       network is served at three precisions so you can watch what
-       quantisation costs.</p>
+    <p>Eleven organs, recognised from a single abdominal CT slice.<span
+       id="comparisonNote"> The same network is served at several precisions,
+       so you can watch what quantisation costs.</span></p>
   </div>
   <div id="status">connecting</div>
 </header>
@@ -167,7 +167,7 @@ a { color: var(--accent); }
 
 <div class="grid">
   <div class="viewer empty" id="viewer">
-    <p>Pick a slice above, or drop your own image.</p>
+    <p id="viewerHint">Drop an image to start.</p>
   </div>
 
   <div>
@@ -185,7 +185,7 @@ a { color: var(--accent); }
       </p>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="modelPanel">
       <h2>Model</h2>
       <div class="row">
         <select id="model"></select>
@@ -238,7 +238,16 @@ async function boot() {
       select.append(option);
     }
     els("status").innerHTML =
-      `<b>${health.models.length}</b> models · ${health.class_names.length} classes`;
+      `<b>${health.models.length}</b> ${health.models.length === 1 ? "model" : "models"} ·
+       ${health.class_names.length} classes`;
+
+    // A memory-constrained host may be configured to load a single artefact.
+    // A dropdown with one entry and a button that compares one model against
+    // itself are worse than their absence.
+    if (health.models.length < 2) {
+      els("modelPanel").hidden = true;
+      els("comparisonNote").hidden = true;
+    }
   } catch (err) {
     els("status").innerHTML = `<span class="error">service unreachable</span>`;
     return;
@@ -247,13 +256,21 @@ async function boot() {
 }
 
 async function loadSamples() {
+  // A 404 here is a normal state, not a failure: the samples are generated
+  // from the dataset and an image built without them still serves uploads.
+  // The status has to be checked explicitly, because the 404 body is itself
+  // valid JSON and would otherwise parse into a manifest with no samples.
   let manifest;
   try {
-    manifest = await (await fetch("/static/samples/samples.json")).json();
+    const response = await fetch("/static/samples/samples.json");
+    if (!response.ok) return;
+    manifest = await response.json();
+    if (!Array.isArray(manifest.samples)) return;
   } catch { return; }
 
   const strip = els("strip");
   const slot = els("dropslot");
+  const hint = els("viewerHint");
   for (const sample of manifest.samples) {
     const button = document.createElement("button");
     button.className = "slice";
@@ -262,6 +279,7 @@ async function loadSamples() {
     button.innerHTML =
       `<img src="/static/samples/${sample.file}" alt="CT slice showing ${sample.label_name}">
        <span>${sample.label_name}</span>`;
+    hint && (hint.textContent = "Pick a slice above, or drop your own image.");
     button.onclick = async () => {
       for (const other of strip.querySelectorAll(".slice"))
         other.setAttribute("aria-pressed", "false");

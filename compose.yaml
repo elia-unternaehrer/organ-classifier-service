@@ -1,0 +1,25 @@
+# Local run of the deployed image, same artefacts, same configuration.
+#
+# Not a production topology: one service, no orchestrator, no reverse proxy.
+# That is the point rather than an omission, and the reasoning is in the
+# README under Design decisions.
+
+services:
+  api:
+    build:
+      context: .
+      args:
+        MODEL_VERSION: v0.1.0
+    ports:
+      - "8000:8000"
+    environment:
+      # Every artefact in the image. Drop entries here to fit a smaller host;
+      # the service reads its preprocessing configuration out of whichever
+      # models it loads, so no other change is needed.
+      MODEL_PATHS: >-
+        /app/models/resnet18_224_fp32.onnx,
+        /app/models/resnet18_224_int8_dynamic.onnx,
+        /app/models/resnet18_224_int8_static.onnx
+      DEFAULT_MODEL: resnet18_224_int8_static
+      INTRA_OP_THREADS: "1"
+    restart: unless-stopped
