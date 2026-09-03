@@ -1,0 +1,45 @@
+{
+  "dataset": "organamnist",
+  "size": 224,
+  "split": "val",
+  "seed": 7,
+  "license": "CC BY 4.0",
+  "samples": [
+    {
+      "file": "kidney-left.png",
+      "label_index": 4,
+      "label_name": "kidney-left",
+      "source": "organamnist val[3300]"
+    },
+    {
+      "file": "liver.png",
+      "label_index": 6,
+      "label_name": "liver",
+      "source": "organamnist val[5292]"
+    },
+    {
+      "file": "spleen.png",
+      "label_index": 10,
+      "label_name": "spleen",
+      "source": "organamnist val[1003]"
+    },
+    {
+      "file": "bladder.png",
+      "label_index": 0,
+      "label_name": "bladder",
+      "source": "organamnist val[5306]"
+    },
+    {
+      "file": "femur-left.png",
+      "label_index": 1,
+      "label_name": "femur-left",
+      "source": "organamnist val[621]"
+    },
+    {
+      "file": "heart.png",
+      "label_index": 3,
+      "label_name": "heart",
+      "source": "organamnist val[3050]"
+    }
+  ]
+}

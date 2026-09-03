@@ -4,6 +4,7 @@
     organ-service train --config configs/train_224.yaml
     organ-service export --checkpoint runs/resnet18_224/checkpoint.pt
     organ-service quantize --model artifacts/resnet18_224_fp32.onnx
+    organ-service samples --size 224
 
 Subcommands are imported lazily, one at a time. That is not a micro
 optimisation: ``train`` pulls in torch and ``download`` pulls in medmnist,
@@ -22,6 +23,7 @@ COMMANDS = {
     "train": ("organ_service.train", "train a model from a config"),
     "export": ("organ_service.export", "export a checkpoint to ONNX"),
     "quantize": ("organ_service.quantization", "quantise an exported model"),
+    "samples": ("organ_service.samples", "export demo slices for the frontend"),
 }
 
 

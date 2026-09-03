@@ -160,8 +160,14 @@ def load_image(data: bytes) -> Image.Image:
         image = Image.open(io.BytesIO(data))
         image.load()
     except Exception as exc:
-        # Any decode failure is a bad request, not a server error.
-        raise ValueError(f"could not decode image: {exc}") from exc
+        # Any decode failure is a bad request, not a server error. The
+        # underlying message is kept on the chained exception for the log and
+        # left out of the text, because Pillow's version of it names a buffer
+        # object at a memory address, which tells a user nothing and exposes
+        # internals for no benefit.
+        raise ValueError(
+            "could not decode image; expected PNG, JPEG or another common format"
+        ) from exc
     return image
 
 

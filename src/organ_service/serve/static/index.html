@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Organ classifier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Reading room palette. Radiologists work on dark displays because a bright
+   surround crushes the perceived contrast of a greyscale image, and these
+   images are the content here. Amber is the single signal colour, borrowed
+   from measurement overlays on imaging workstations. */
+:root {
+  --bg:      #0e1114;
+  --panel:   #151a20;
+  --raised:  #1b2129;
+  --line:    #242c35;
+  --ink:     #e2e8ef;
+  --muted:   #78848f;
+  --accent:  #f0a202;
+  --accent-soft: rgba(240, 162, 2, 0.14);
+  --bad:     #d8624b;
+
+  --step-0: 0.875rem;
+  --step-1: 1rem;
+  --step-2: 1.5rem;
+  --step-3: 2.25rem;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  font-size: var(--step-1);
+  line-height: 1.55;
+  /* Every number on this page sits in a column that gets compared to the
+     number above it. */
+  font-variant-numeric: tabular-nums;
+}
+
+.wrap { max-width: 68rem; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+header { display: flex; justify-content: space-between; align-items: baseline;
+         gap: 1rem; flex-wrap: wrap; padding-bottom: 1.25rem;
+         border-bottom: 1px solid var(--line); }
+h1 { font-size: var(--step-2); font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+header p { margin: 0.25rem 0 0; color: var(--muted); font-size: var(--step-0);
+           max-width: 46ch; }
+#status { color: var(--muted); font-size: var(--step-0); }
+#status b { color: var(--ink); font-weight: 500; }
+
+/* --- slice strip: the hero. Real CT slices, immediately recognisable. --- */
+.strip { display: flex; gap: 0.75rem; overflow-x: auto; padding: 1.5rem 0;
+         scrollbar-width: thin; }
+.slice { flex: 0 0 auto; width: 96px; background: none; border: 1px solid var(--line);
+         border-radius: 2px; padding: 0; cursor: pointer; color: var(--muted);
+         font: inherit; font-size: 0.75rem; overflow: hidden; text-align: left; }
+.slice img { display: block; width: 96px; height: 96px; object-fit: cover;
+             filter: contrast(1.05); }
+.slice span { display: block; padding: 0.4rem 0.5rem; }
+.slice:hover, .slice:focus-visible { border-color: var(--accent); color: var(--ink); }
+.slice[aria-pressed="true"] { border-color: var(--accent); color: var(--ink);
+                              box-shadow: inset 0 0 0 1px var(--accent); }
+
+.dropslot { flex: 0 0 auto; width: 96px; height: 122px; border: 1px solid var(--line);
+            border-radius: 2px; background: var(--panel); color: var(--muted);
+            font: inherit; font-size: 0.75rem; cursor: pointer; display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+            gap: 0.35rem; text-align: center; padding: 0.5rem; }
+.dropslot:hover, .dropslot:focus-visible, .dropslot.over {
+  border-color: var(--accent); color: var(--ink); background: var(--accent-soft); }
+.dropslot svg { width: 18px; height: 18px; }
+
+/* --- results --- */
+.grid { display: grid; grid-template-columns: 260px 1fr; gap: 1.5rem;
+        align-items: start; }
+@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+
+.viewer { background: #000; border: 1px solid var(--line); border-radius: 2px;
+          aspect-ratio: 1; display: flex; align-items: center;
+          justify-content: center; overflow: hidden; }
+.viewer img { width: 100%; height: 100%; object-fit: contain; }
+.viewer p { color: var(--muted); font-size: var(--step-0); padding: 1.5rem;
+            text-align: center; margin: 0; }
+/* Before anything is selected there is nothing to keep square, and a
+   full-width black square costs most of a phone screen. */
+.viewer.empty { aspect-ratio: auto; min-height: 7rem; }
+
+.panel { background: var(--panel); border: 1px solid var(--line);
+         border-radius: 2px; padding: 1.25rem; }
+.panel + .panel { margin-top: 1rem; }
+.panel h2 { font-size: var(--step-0); font-weight: 500; margin: 0 0 1rem;
+            color: var(--muted); }
+
+.bars { display: grid; gap: 0.5rem; }
+.bar { display: grid; grid-template-columns: 8.5rem 1fr 3.5rem; gap: 0.75rem;
+       align-items: center; font-size: var(--step-0); }
+.bar .track { height: 6px; background: var(--raised); border-radius: 1px;
+              overflow: hidden; }
+.bar .fill { display: block; height: 100%; background: var(--accent);
+             width: 0; transition: width 420ms cubic-bezier(0.2, 0, 0, 1); }
+.bar .pct { text-align: right; color: var(--muted); }
+.bar.top .pct, .bar.top > span:first-child { color: var(--ink); }
+
+.headline { font-size: var(--step-3); font-weight: 600; letter-spacing: -0.02em;
+            margin: 0 0 0.25rem; }
+.headline.wrong { color: var(--bad); }
+.verdict { color: var(--muted); font-size: var(--step-0); margin: 0 0 1.25rem; }
+
+table { width: 100%; border-collapse: collapse; font-size: var(--step-0); }
+th { text-align: left; font-weight: 500; color: var(--muted);
+     padding: 0 0 0.5rem; border-bottom: 1px solid var(--line); }
+td { padding: 0.55rem 0; border-bottom: 1px solid var(--line); }
+td:last-child, th:last-child { text-align: right; }
+tr.fastest td { color: var(--accent); }
+tr.pending td { color: var(--muted); }
+
+button.action { background: var(--raised); color: var(--ink); font: inherit;
+                font-size: var(--step-0); border: 1px solid var(--line);
+                border-radius: 2px; padding: 0.5rem 0.9rem; cursor: pointer; }
+button.action:hover:not(:disabled), button.action:focus-visible {
+  border-color: var(--accent); }
+button.action:disabled { opacity: 0.5; cursor: default; }
+
+select { background: var(--raised); color: var(--ink); font: inherit;
+         font-size: var(--step-0); border: 1px solid var(--line);
+         border-radius: 2px; padding: 0.4rem 0.6rem; }
+
+.row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.timing { color: var(--muted); font-size: var(--step-0); margin: 1rem 0 0; }
+.timing b { color: var(--ink); font-weight: 500; }
+.error { color: var(--bad); font-size: var(--step-0); }
+.note { color: var(--muted); font-size: 0.8125rem; margin-top: 2.5rem;
+        max-width: 62ch; border-top: 1px solid var(--line); padding-top: 1rem; }
+a { color: var(--accent); }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .bar .fill { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <h1>Organ classifier</h1>
+    <p>Eleven organs, recognised from a single abdominal CT slice. The same
+       network is served at three precisions so you can watch what
+       quantisation costs.</p>
+  </div>
+  <div id="status">connecting</div>
+</header>
+
+<div class="strip" id="strip">
+  <button class="dropslot" id="dropslot" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M12 5v14M5 12h14" stroke-linecap="round"/>
+    </svg>
+    <span>Drop a slice</span>
+  </button>
+</div>
+
+<div class="grid">
+  <div class="viewer empty" id="viewer">
+    <p>Pick a slice above, or drop your own image.</p>
+  </div>
+
+  <div>
+    <div class="panel" id="result" hidden>
+      <p class="headline" id="headline"></p>
+      <p class="verdict" id="verdict"></p>
+      <div class="bars" id="bars"></div>
+      <p class="timing" id="timing"></p>
+    </div>
+
+    <div class="panel" id="idle">
+      <h2>Waiting for an image</h2>
+      <p style="margin:0;color:var(--muted);font-size:var(--step-0)">
+        Predictions run on CPU, the same way they would in production.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2>Model</h2>
+      <div class="row">
+        <select id="model"></select>
+        <button class="action" id="compare" disabled>Compare all models</button>
+      </div>
+      <div id="comparison" hidden style="margin-top:1.25rem">
+        <table>
+          <thead>
+            <tr><th>Precision</th><th>Prediction</th><th>Size</th><th>Inference</th></tr>
+          </thead>
+          <tbody id="comparisonBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="note" id="note">
+  Slices come from the OrganAMNIST validation split, derived from the LiTS
+  liver tumour segmentation dataset. This is a demonstration of a serving
+  pipeline, not a diagnostic tool.
+</p>
+
+</div>
+
+<script>
+const els = id => document.getElementById(id);
+const state = { models: [], classNames: [], file: null, truth: null, url: null };
+
+// Artefacts here run from a few kilobytes in tests to tens of megabytes in
+// production, and rounding a 12 kB stub to "0.0 MB" hides exactly the number
+// this page exists to compare.
+const fmtBytes = n =>
+  n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.round(n / 1e3) + " kB";
+const fmtMs = n => n.toFixed(1) + " ms";
+
+async function boot() {
+  try {
+    const health = await (await fetch("/health")).json();
+    state.models = health.models;
+    state.classNames = health.class_names;
+
+    const select = els("model");
+    select.innerHTML = "";
+    for (const m of health.models) {
+      const option = document.createElement("option");
+      option.value = m.model_id;
+      option.textContent = `${m.precision} · ${fmtBytes(m.size_bytes)}`;
+      option.selected = m.is_default;
+      select.append(option);
+    }
+    els("status").innerHTML =
+      `<b>${health.models.length}</b> models · ${health.class_names.length} classes`;
+  } catch (err) {
+    els("status").innerHTML = `<span class="error">service unreachable</span>`;
+    return;
+  }
+  loadSamples();
+}
+
+async function loadSamples() {
+  let manifest;
+  try {
+    manifest = await (await fetch("/static/samples/samples.json")).json();
+  } catch { return; }
+
+  const strip = els("strip");
+  const slot = els("dropslot");
+  for (const sample of manifest.samples) {
+    const button = document.createElement("button");
+    button.className = "slice";
+    button.type = "button";
+    button.setAttribute("aria-pressed", "false");
+    button.innerHTML =
+      `<img src="/static/samples/${sample.file}" alt="CT slice showing ${sample.label_name}">
+       <span>${sample.label_name}</span>`;
+    button.onclick = async () => {
+      for (const other of strip.querySelectorAll(".slice"))
+        other.setAttribute("aria-pressed", "false");
+      button.setAttribute("aria-pressed", "true");
+
+      const blob = await (await fetch(`/static/samples/${sample.file}`)).blob();
+      use(new File([blob], sample.file, { type: "image/png" }), sample.label_name);
+    };
+    strip.insertBefore(button, slot);
+  }
+}
+
+function use(file, truth) {
+  state.file = file;
+  state.truth = truth ?? null;
+
+  if (state.url) URL.revokeObjectURL(state.url);
+  state.url = URL.createObjectURL(file);
+  const viewer = els("viewer");
+  viewer.classList.remove("empty");
+  // A file the browser cannot render is one the server will reject too;
+  // showing a broken-image icon next to the explanation adds nothing.
+  viewer.innerHTML = `<img src="${state.url}" alt="Selected slice">`;
+  viewer.querySelector("img").onerror = () => {
+    viewer.classList.add("empty");
+    viewer.innerHTML = "<p>That file is not a readable image.</p>";
+  };
+
+  els("comparison").hidden = true;
+  els("compare").disabled = false;
+  predict(els("model").value);
+}
+
+async function predict(modelId) {
+  els("idle").hidden = true;
+  els("result").hidden = false;
+  els("headline").textContent = "…";
+  els("headline").classList.remove("wrong");
+  els("verdict").textContent = "";
+  els("bars").innerHTML = "";
+  els("timing").textContent = "";
+
+  let body;
+  try {
+    body = await send(state.file, modelId);
+  } catch (err) {
+    els("headline").textContent = "No prediction";
+    els("headline").classList.add("wrong");
+    els("verdict").innerHTML = `<span class="error">${err.message}</span>`;
+    return;
+  }
+
+  const top = body.predictions[0];
+  els("headline").textContent = top.class_name;
+
+  if (state.truth) {
+    const right = top.class_name === state.truth;
+    els("headline").classList.toggle("wrong", !right);
+    els("verdict").textContent = right
+      ? `Correct — this slice is labelled ${state.truth}.`
+      : `Labelled ${state.truth} in the dataset.`;
+  } else {
+    els("verdict").textContent = `${(top.probability * 100).toFixed(1)}% confident.`;
+  }
+
+  const bars = els("bars");
+  body.predictions.slice(0, 5).forEach((p, index) => {
+    const row = document.createElement("div");
+    row.className = "bar" + (index === 0 ? " top" : "");
+    row.innerHTML =
+      `<span>${p.class_name}</span>
+       <span class="track"><span class="fill"></span></span>
+       <span class="pct">${(p.probability * 100).toFixed(1)}%</span>`;
+    bars.append(row);
+    requestAnimationFrame(() => {
+      row.querySelector(".fill").style.width =
+        Math.max(p.probability * 100, 0.6) + "%";
+    });
+  });
+
+  els("timing").innerHTML =
+    `preprocess <b>${fmtMs(body.timing.preprocess_ms)}</b> ·
+     inference <b>${fmtMs(body.timing.inference_ms)}</b>`;
+}
+
+async function send(file, modelId) {
+  const form = new FormData();
+  form.append("file", file);
+
+  const response = await fetch(`/predict?model=${encodeURIComponent(modelId)}`, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({}));
+    throw new Error(problem.detail ?? `request failed (${response.status})`);
+  }
+  return response.json();
+}
+
+async function compareAll() {
+  const table = els("comparisonBody");
+  const button = els("compare");
+
+  els("comparison").hidden = false;
+  button.disabled = true;
+  table.innerHTML = state.models
+    .map(m => `<tr class="pending" id="cmp-${m.model_id}">
+        <td>${m.precision}</td><td>running…</td>
+        <td>${fmtBytes(m.size_bytes)}</td><td>—</td></tr>`)
+    .join("");
+
+  const timings = [];
+  for (const model of state.models) {
+    const row = els(`cmp-${model.model_id}`);
+    try {
+      const body = await send(state.file, model.model_id);
+      const ms = body.timing.inference_ms;
+      timings.push({ id: model.model_id, ms });
+      row.className = "";
+      row.children[1].textContent = body.predictions[0].class_name;
+      row.children[3].textContent = fmtMs(ms);
+    } catch (err) {
+      row.className = "";
+      row.children[1].innerHTML = `<span class="error">${err.message}</span>`;
+    }
+  }
+
+  if (timings.length) {
+    const fastest = timings.reduce((a, b) => (a.ms <= b.ms ? a : b));
+    els(`cmp-${fastest.id}`)?.classList.add("fastest");
+  }
+  button.disabled = false;
+}
+
+// --- input wiring ---------------------------------------------------------
+const slot = els("dropslot");
+const picker = document.createElement("input");
+picker.type = "file";
+picker.accept = "image/*";
+picker.onchange = () => picker.files[0] && use(picker.files[0]);
+slot.onclick = () => picker.click();
+
+for (const event of ["dragenter", "dragover"]) {
+  document.addEventListener(event, e => {
+    e.preventDefault();
+    slot.classList.add("over");
+  });
+}
+for (const event of ["dragleave", "drop"]) {
+  document.addEventListener(event, e => {
+    e.preventDefault();
+    if (event === "dragleave" && e.relatedTarget) return;
+    slot.classList.remove("over");
+  });
+}
+document.addEventListener("drop", e => {
+  const file = e.dataTransfer?.files?.[0];
+  if (file) {
+    for (const other of document.querySelectorAll(".slice"))
+      other.setAttribute("aria-pressed", "false");
+    use(file);
+  }
+});
+
+els("model").onchange = e => state.file && predict(e.target.value);
+els("compare").onclick = compareAll;
+
+boot();
+</script>
+</body>
+</html>
