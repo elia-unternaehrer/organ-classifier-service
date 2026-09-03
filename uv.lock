@@ -824,6 +824,7 @@ train = [
     { name = "onnxscript" },
     { name = "pyyaml" },
     { name = "scikit-learn" },
+    { name = "sympy" },
     { name = "timm" },
     { name = "torch" },
 ]
@@ -835,6 +836,8 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "scikit-learn" },
+    { name = "sympy" },
 ]
 
 [package.metadata]
@@ -852,6 +855,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "pyyaml", marker = "extra == 'train'", specifier = ">=6.0" },
     { name = "scikit-learn", marker = "extra == 'train'", specifier = ">=1.5" },
+    { name = "sympy", marker = "extra == 'train'", specifier = ">=1.13" },
     { name = "timm", marker = "extra == 'train'", specifier = ">=1.0" },
     { name = "torch", marker = "extra == 'train'", specifier = ">=2.5" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
@@ -865,6 +869,8 @@ dev = [
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-cov", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.8" },
+    { name = "scikit-learn", specifier = ">=1.5" },
+    { name = "sympy", specifier = ">=1.13" },
 ]
 
 [[package]]

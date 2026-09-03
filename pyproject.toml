@@ -27,6 +27,8 @@ train = [
     # Required by torch's dynamo-based ONNX exporter, which is the default
     # from torch 2.6 onward.
     "onnxscript>=0.1",
+    # Symbolic shape inference during quantisation pre-processing.
+    "sympy>=1.13",
     "timm>=1.0",
     "medmnist>=3.0",
     "scikit-learn>=1.5",
@@ -39,6 +41,10 @@ dev = [
     # Lets the test suite build tiny ONNX fixtures, so metadata and inference
     # behaviour are covered in CI without installing torch.
     "onnx>=1.17",
+    "sympy>=1.13",
+    # Backs organ_service.metrics, which quantisation imports, so the default
+    # CI job needs it even though it installs no torch.
+    "scikit-learn>=1.5",
     "pytest>=8.3",
     "pytest-cov>=6.0",
     "httpx>=0.28",

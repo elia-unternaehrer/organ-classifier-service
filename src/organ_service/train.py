@@ -30,7 +30,6 @@ import numpy as np
 import timm
 import torch
 import yaml
-from sklearn.metrics import balanced_accuracy_score, confusion_matrix
 from torch import nn
 
 from organ_service import __version__
@@ -41,6 +40,7 @@ from organ_service.data import (
     load_split,
 )
 from organ_service.dataset import OrganDataset, build_loader
+from organ_service.metrics import balanced_accuracy, confusion
 from organ_service.preprocessing import NORM_MEAN, NORM_STD
 
 # --- Configuration ---------------------------------------------------------
@@ -312,8 +312,8 @@ def main() -> int:
         )
         val_loss, val_pred, val_true = run_epoch(model, val_loader, criterion, device, config.amp)
 
-        train_bacc = balanced_accuracy_score(train_true, train_pred)
-        val_bacc = balanced_accuracy_score(val_true, val_pred)
+        train_bacc = balanced_accuracy(train_true, train_pred)
+        val_bacc = balanced_accuracy(val_true, val_pred)
         elapsed = time.perf_counter() - started
 
         writer.writerow(
@@ -337,7 +337,7 @@ def main() -> int:
         improved = val_bacc > best_bacc or (val_bacc == best_bacc and val_loss < best_loss)
         if improved:
             best_bacc, best_loss, best_epoch = val_bacc, val_loss, epoch
-            best_confusion = confusion_matrix(val_true, val_pred, labels=list(range(num_classes)))
+            best_confusion = confusion(val_true, val_pred, num_classes)
             torch.save(
                 {
                     "state_dict": model.state_dict(),
