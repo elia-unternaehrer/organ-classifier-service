@@ -2,7 +2,7 @@
 
 Run once per resolution before training:
 
-    uv run --extra train python scripts/download_data.py --size 224
+    organ-service download --size 224
 
 The download itself is delegated to the ``medmnist`` package, which knows the
 Zenodo URLs and verifies the published MD5. What this script adds is the
@@ -148,7 +148,7 @@ def download(dataset: str, size: int, root: Path, retries: int = 3) -> Path:
     return path
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", default=DEFAULT_DATASET)
     parser.add_argument("--size", type=int, default=224, choices=AVAILABLE_SIZES)
@@ -158,7 +158,7 @@ def main() -> int:
         action="store_true",
         help="rewrite the manifest even if it exists (rehashes the archive)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     path = download(args.dataset, args.size, args.root)
     manifest_path = path.with_suffix(".manifest.json")

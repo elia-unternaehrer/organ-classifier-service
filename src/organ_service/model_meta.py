@@ -10,15 +10,22 @@ That disagreement is the failure this prevents. Serving a model exported at
 crash. It produces predictions that are quietly wrong, which is the worst
 category of production bug.
 
-Writing requires the ``onnx`` package and happens at export time. Reading goes
-through ``onnxruntime``'s ``get_modelmeta()``, which exposes the same fields
-without ``onnx`` installed, so the serving image needs neither torch nor onnx.
+Writing requires the ``onnx`` package and happens at export time; the import
+is deferred into the function so that importing this module stays cheap and
+possible without it. Reading goes through ``onnxruntime``'s
+``get_modelmeta()``, which exposes the same fields without ``onnx`` installed,
+so the serving image needs neither torch nor onnx.
+
+Both the export step and the quantisation step attach metadata, and both must
+attach exactly the same keys, so the writer lives here next to the schema
+rather than being implemented once per caller.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 
 SCHEMA_VERSION = "1"
 
@@ -103,7 +110,7 @@ class ModelMetadata:
                 "artefact is missing metadata keys: "
                 + ", ".join(missing)
                 + ". It was probably exported by an older version of "
-                "scripts/export_onnx.py; re-export it."
+                "the export command; re-export it."
             )
 
         version = props[f"{KEY_PREFIX}schema_version"]
@@ -133,3 +140,56 @@ class ModelMetadata:
             f"({self.image_size}px, {self.num_classes} classes, "
             f"version {self.model_version})"
         )
+
+
+def external_data_files(path: Path) -> set[Path]:
+    """List the sidecar weight files an artefact points at.
+
+    Inspected without loading the tensors, because ``onnx.load`` resolves the
+    references and clears them, leaving nothing to find afterwards.
+    """
+    import onnx
+
+    shallow = onnx.load(str(path), load_external_data=False)
+    return {
+        path.parent / entry.value
+        for initialiser in shallow.graph.initializer
+        if initialiser.data_location == onnx.TensorProto.EXTERNAL
+        for entry in initialiser.external_data
+        if entry.key == "location"
+    }
+
+
+def attach_metadata(path: Path, metadata: ModelMetadata) -> None:
+    """Embed the serving configuration and consolidate the artefact.
+
+    Called after export and again after each quantisation pass, because the
+    quantisation tools rewrite the graph and drop ``metadata_props`` entirely.
+    An artefact that loses them still loads, but the service refuses it, and
+    the cause is far from obvious at that point.
+
+    Consolidation matters for the same delivery reason. Torch's dynamo exporter
+    writes weights to a ``.onnx.data`` sidecar; loading and re-saving folds them
+    back inline so the model travels as a single release asset, rather than as
+    two files of which only one looks like the model.
+
+    Safe at this scale. A model above the 2 GB protobuf limit would have to stay
+    external, but ResNet18 is three orders of magnitude below it.
+    """
+    import onnx
+
+    sidecars = external_data_files(path)
+
+    model = onnx.load(str(path))
+    # Cleared first so that re-export does not accumulate duplicate entries.
+    del model.metadata_props[:]
+    for key, value in metadata.to_props().items():
+        entry = model.metadata_props.add()
+        entry.key = key
+        entry.value = value
+
+    onnx.save(model, str(path))
+
+    # Only once the weights are inline, and only files this artefact referenced.
+    for sidecar in sidecars:
+        sidecar.unlink(missing_ok=True)

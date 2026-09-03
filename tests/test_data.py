@@ -93,12 +93,12 @@ def test_unknown_split_is_rejected(archive_root: Path) -> None:
 
 
 def test_missing_archive_message_contains_the_fix(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match=r"download_data\.py"):
+    with pytest.raises(FileNotFoundError, match="organ-service download"):
         dm.load_split("organamnist", SIZE, tmp_path, "train")
 
 
 def test_missing_manifest_message_contains_the_fix(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match=r"download_data\.py"):
+    with pytest.raises(FileNotFoundError, match="organ-service download"):
         dm.load_manifest("organamnist", SIZE, tmp_path)
 
 

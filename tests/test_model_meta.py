@@ -140,3 +140,78 @@ def test_summary_mentions_size_and_precision(metadata: ModelMetadata) -> None:
     summary = metadata.summary()
     assert "224px" in summary
     assert "fp32" in summary
+
+
+# --- External data consolidation -------------------------------------------
+# The dynamo exporter writes weights to a .onnx.data sidecar. The artefact has
+# to travel as a single release asset, so export folds them back inline and
+# removes the sidecar.
+
+
+@pytest.fixture
+def external_data_model(tmp_path: Path, metadata: ModelMetadata) -> Path:
+    """A model whose weights live in a separate file, as dynamo emits."""
+    from onnx import numpy_helper
+    from onnx.external_data_helper import convert_model_to_external_data
+
+    rng = np.random.default_rng(0)
+    weight = rng.standard_normal((32, 1, 3, 3)).astype(np.float32)
+
+    graph = helper.make_graph(
+        [helper.make_node("Conv", ["input", "w"], ["out"], pads=[1, 1, 1, 1])],
+        "external",
+        [
+            helper.make_tensor_value_info(
+                "input", TensorProto.FLOAT, ["batch", 1, IMAGE_SIZE, IMAGE_SIZE]
+            )
+        ],
+        [
+            helper.make_tensor_value_info(
+                "out", TensorProto.FLOAT, ["batch", 32, IMAGE_SIZE, IMAGE_SIZE]
+            )
+        ],
+        initializer=[numpy_helper.from_array(weight, "w")],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)], ir_version=10)
+    convert_model_to_external_data(
+        model, all_tensors_to_one_file=True, location="external.onnx.data", size_threshold=0
+    )
+
+    path = tmp_path / "external.onnx"
+    onnx.save(model, str(path))
+    return path
+
+
+def test_external_data_files_are_detected(external_data_model: Path) -> None:
+    """References must be read without loading the tensors.
+
+    ``onnx.load`` resolves external references and clears them, so inspecting a
+    loaded model would always report none and the sidecar would be orphaned
+    rather than removed.
+    """
+    from organ_service.model_meta import external_data_files
+
+    found = external_data_files(external_data_model)
+    assert found == {external_data_model.parent / "external.onnx.data"}
+
+
+def test_attach_metadata_consolidates_artefact(
+    external_data_model: Path, metadata: ModelMetadata
+) -> None:
+    """One file in, one file out, still loadable, metadata readable."""
+    from organ_service.model_meta import attach_metadata
+
+    sidecar = external_data_model.parent / "external.onnx.data"
+    assert sidecar.exists()
+
+    attach_metadata(external_data_model, metadata)
+
+    assert not sidecar.exists()
+    assert external_data_model.stat().st_size > 1000
+
+    session = ort.InferenceSession(str(external_data_model), providers=["CPUExecutionProvider"])
+    recovered = ModelMetadata.from_props(session.get_modelmeta().custom_metadata_map)
+    assert recovered.image_size == metadata.image_size
+
+    data = np.zeros((1, 1, IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32)
+    assert session.run(["out"], {"input": data})[0].shape[1] == 32

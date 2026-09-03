@@ -43,6 +43,10 @@ from organ_service.dataset import OrganDataset, build_loader
 from organ_service.metrics import balanced_accuracy, confusion
 from organ_service.preprocessing import NORM_MEAN, NORM_STD
 
+# Binary datasets are the two-class case of the same setup and need no
+# special handling.
+SUPPORTED_TASKS = {"multi-class", "binary-class"}
+
 # --- Configuration ---------------------------------------------------------
 
 
@@ -221,11 +225,11 @@ def run_epoch(
     )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/train.yaml"))
     parser.add_argument("--out", type=Path, default=Path("runs"))
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     config = Config.from_yaml(args.config)
     set_determinism(config.seed)
@@ -238,6 +242,19 @@ def main() -> int:
 
     provenance = load_manifest(config.dataset, config.image_size, config.data_root)
     num_classes = provenance.num_classes
+
+    # The pipeline assumes single-label classification end to end: softmax over
+    # logits, cross-entropy, argmax, balanced accuracy. Several MedMNIST
+    # datasets are not that. ChestMNIST is multi-label and needs BCE with a
+    # sigmoid head and AUC in place of balanced accuracy; RetinaMNIST is
+    # ordinal. Failing here marks the branch point explicitly rather than
+    # training something that reports plausible but meaningless numbers.
+    if provenance.task not in SUPPORTED_TASKS:
+        raise SystemExit(
+            f"{config.dataset} is a '{provenance.task}' task; this pipeline "
+            f"supports {sorted(SUPPORTED_TASKS)}. Supporting it would mean a "
+            f"different loss, head activation and evaluation metric."
+        )
 
     splits = {
         name: load_split(

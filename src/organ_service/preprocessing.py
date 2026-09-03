@@ -65,8 +65,10 @@ NORM_STD = 0.5
 """Normalisation constants used by the MedMNIST reference implementation.
 
 Keeping them makes results directly comparable to the published baselines,
-which is worth more here than dataset-specific statistics. Run
-``scripts/compute_norm_stats.py`` to derive the empirical values instead.
+which is worth more here than dataset-specific statistics, and they are what
+the MedMNIST authors evaluated against. Empirical per-dataset statistics would
+be a change to the model contract: every exported artefact carries these values
+in its metadata, so altering them invalidates every model already published.
 """
 
 NUM_CHANNELS = 1

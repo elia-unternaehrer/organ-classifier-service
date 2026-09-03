@@ -19,6 +19,11 @@ dependencies = [
     "pydantic>=2.9",
 ]
 
+[project.scripts]
+# One command with subcommands rather than several console scripts: the
+# pipeline is a sequence, and a single entry point keeps that visible.
+organ-service = "organ_service.cli:main"
+
 [project.optional-dependencies]
 # Training-only. Installed locally and in the training job, never in the image.
 train = [

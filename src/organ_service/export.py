@@ -1,7 +1,6 @@
 """Export a trained checkpoint to ONNX.
 
-    uv run --extra train python scripts/export_onnx.py \
-        --checkpoint runs/resnet18_224/checkpoint.pt
+    organ-service export --checkpoint runs/resnet18_224/checkpoint.pt
 
 Everything the exported artefact needs is read out of the checkpoint: the
 resolution, the class names, the normalisation constants and the run name that
@@ -23,15 +22,19 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import onnx
 import onnxruntime as ort
 import timm
 import torch
 
 from organ_service import __version__
-from organ_service.model_meta import SCHEMA_VERSION, ModelMetadata
+from organ_service.model_meta import SCHEMA_VERSION, ModelMetadata, attach_metadata
 
-OPSET = 17
+OPSET = 18
+"""Torch's dynamo exporter implements 18. Requesting 17 makes it export at 18
+and then attempt a downgrade that fails on this graph, leaving the model at 18
+anyway after a lot of noise. Asking for what the exporter produces is simpler
+and avoids a conversion that buys nothing: ONNX Runtime has supported 18 since
+1.14."""
 PARITY_TOLERANCE = 1e-4
 PARITY_SAMPLES = 8
 
@@ -59,7 +62,13 @@ def load_model(checkpoint: dict) -> torch.nn.Module:
     return model
 
 
-def export(model: torch.nn.Module, image_size: int, destination: Path, opset: int = OPSET) -> str:
+def export(
+    model: torch.nn.Module,
+    image_size: int,
+    destination: Path,
+    opset: int = OPSET,
+    exporter: str = "torchscript",
+) -> str:
     """Write the graph with a dynamic batch axis.
 
     Batch size is left symbolic so the same artefact serves one request at a
@@ -67,49 +76,55 @@ def export(model: torch.nn.Module, image_size: int, destination: Path, opset: in
     and width stay fixed: they are part of the model's contract, and pinning
     them lets the runtime specialise its kernels.
 
-    Torch defaults to its dynamo-based exporter from 2.6 onward, which needs
-    ``onnxscript``. That path is selected explicitly rather than left to the
-    default, so the behaviour does not shift under a torch upgrade, with the
-    older TorchScript exporter kept as a fallback.
+    TorchScript is the default despite being the older path, and the reason is
+    downstream rather than here. The dynamo exporter produces a graph that runs
+    correctly, with parity against the torch model at around 2e-06, but one
+    that ONNX's own shape inference rejects: it reports a mismatch at the
+    classifier head, ``(512) vs (11)``. Quantisation calls that inference
+    internally, so a dynamo-exported artefact cannot be quantised, and
+    quantisation is not optional in this pipeline.
+
+    So the choice is between a modern exporter whose output is a dead end and
+    a deprecated one whose output completes the pipeline. The dynamo path stays
+    available behind ``--exporter dynamo`` so the decision is recorded rather
+    than hidden, and so it can be retried against a future torch release.
+
+    Parity against the torch model is checked immediately after export either
+    way, and that is the actual correctness guarantee; which exporter produced
+    the graph is provenance.
 
     Returns:
-        Which exporter produced the file. Recorded next to the artefact,
+        Which exporter produced the file, recorded next to the artefact
         because the two can emit structurally different graphs.
     """
     dummy = torch.zeros(1, 1, image_size, image_size, dtype=torch.float32)
     common = {
         "input_names": ["input"],
         "output_names": ["logits"],
-        "dynamic_axes": {"input": {0: "batch"}, "logits": {0: "batch"}},
         "opset_version": opset,
     }
 
-    try:
-        torch.onnx.export(model, dummy, str(destination), dynamo=True, **common)
-        return "dynamo"
-    except Exception as exc:
-        print(f"dynamo exporter unavailable ({exc});\nfalling back to torchscript")
+    if exporter == "dynamo":
         torch.onnx.export(
             model,
             dummy,
             str(destination),
-            dynamo=False,
-            do_constant_folding=True,
+            dynamo=True,
+            dynamic_shapes=({0: torch.export.Dim.AUTO},),
             **common,
         )
-        return "torchscript"
+        return "dynamo"
 
-
-def attach_metadata(path: Path, metadata: ModelMetadata) -> None:
-    """Embed the serving configuration into the artefact."""
-    model = onnx.load(str(path))
-    # Clear any existing entries so re-export does not accumulate duplicates.
-    del model.metadata_props[:]
-    for key, value in metadata.to_props().items():
-        entry = model.metadata_props.add()
-        entry.key = key
-        entry.value = value
-    onnx.save(model, str(path))
+    torch.onnx.export(
+        model,
+        dummy,
+        str(destination),
+        dynamo=False,
+        do_constant_folding=True,
+        dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
+        **common,
+    )
+    return "torchscript"
 
 
 def check_parity(model: torch.nn.Module, path: Path, image_size: int, seed: int = 0) -> float:
@@ -135,7 +150,7 @@ def check_parity(model: torch.nn.Module, path: Path, image_size: int, seed: int 
     return float(np.abs(expected - actual).max())
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, default=Path("artifacts"))
@@ -146,12 +161,18 @@ def main() -> int:
     )
     parser.add_argument("--opset", type=int, default=OPSET)
     parser.add_argument(
+        "--exporter",
+        choices=("torchscript", "dynamo"),
+        default="torchscript",
+        help="ONNX exporter; dynamo output currently cannot be quantised",
+    )
+    parser.add_argument(
         "--tolerance",
         type=float,
         default=PARITY_TOLERANCE,
         help="maximum tolerated absolute logit difference",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     config = checkpoint["config"]
@@ -169,7 +190,7 @@ def main() -> int:
     print(f"input       1x1x{image_size}x{image_size}, opset {args.opset}")
 
     model = load_model(checkpoint)
-    exporter = export(model, image_size, destination, args.opset)
+    exporter = export(model, image_size, destination, args.opset, args.exporter)
     print(f"exporter    {exporter}")
 
     metadata = ModelMetadata(

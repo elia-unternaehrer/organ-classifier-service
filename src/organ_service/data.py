@@ -47,6 +47,7 @@ class DatasetProvenance:
 
     dataset: str
     size: int
+    task: str
     npz_filename: str
     medmnist_version: str
     expected_md5: str
@@ -73,7 +74,7 @@ def npz_filename(dataset: str, size: int) -> str:
 
 
 def load_manifest(dataset: str, size: int, root: Path) -> DatasetProvenance:
-    """Read the sidecar written by ``scripts/download_data.py``.
+    """Read the sidecar written by the download command.
 
     Raises:
         FileNotFoundError: With the exact command needed to produce it. A
@@ -84,13 +85,23 @@ def load_manifest(dataset: str, size: int, root: Path) -> DatasetProvenance:
     if not path.exists():
         raise FileNotFoundError(
             f"no manifest at {path}. Run:\n"
-            f"  uv run --extra train python scripts/download_data.py "
-            f"--dataset {dataset} --size {size} --root {root}"
+            f"  organ-service download --dataset {dataset} --size {size} --root {root}"
         )
 
     raw = json.loads(path.read_text())
-    fields = {f for f in DatasetProvenance.__dataclass_fields__}
-    return DatasetProvenance(**{k: v for k, v in raw.items() if k in fields})
+    fields = set(DatasetProvenance.__dataclass_fields__)
+
+    try:
+        return DatasetProvenance(**{k: v for k, v in raw.items() if k in fields})
+    except TypeError as exc:
+        # A manifest written by an older revision of the download command.
+        # Regenerating it is cheap and does not re-download the archive.
+        raise ValueError(
+            f"{path} is missing fields this version expects ({exc}). "
+            f"Regenerate it:\n"
+            f"  organ-service download --dataset {dataset} --size {size} "
+            f"--root {root} --force-manifest"
+        ) from exc
 
 
 def load_split(dataset: str, size: int, root: Path, split: str, mmap: bool = False) -> Split:
@@ -115,8 +126,7 @@ def load_split(dataset: str, size: int, root: Path, split: str, mmap: bool = Fal
     if not path.exists():
         raise FileNotFoundError(
             f"no archive at {path}. Run:\n"
-            f"  uv run --extra train python scripts/download_data.py "
-            f"--dataset {dataset} --size {size} --root {root}"
+            f"  organ-service download --dataset {dataset} --size {size} --root {root}"
         )
 
     with np.load(path, mmap_mode="r" if mmap else None) as archive:
